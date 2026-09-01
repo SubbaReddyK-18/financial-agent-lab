@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# Alembic (keep versions, ignore pycache)
+alembic/versions/__pycache__/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
