@@ -33,6 +33,9 @@ class SimulationRunORM(Base):
     scenario_count: Mapped[int] = mapped_column(Integer, nullable=False)
     seed: Mapped[int] = mapped_column(Integer, nullable=False)
     version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1.0")
+    # Stage 6 provenance: tracks which agent prompt/bundle version produced this run.
+    prompt_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    agent_bundle_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
 
     no_intervention_metrics: Mapped[dict] = mapped_column(JSONB, nullable=False)

@@ -30,6 +30,7 @@ from infrastructure.ai.client import MockLLMClient
 from infrastructure.database.orm.ai import AIDecisionRecordORM
 from infrastructure.database.orm.customer import CustomerORM
 from infrastructure.database.orm.merchant import MerchantORM
+from infrastructure.database.orm.payment import OrderORM, PaymentORM
 from infrastructure.database.orm.recovery import (
     MerchantRecoveryPolicyORM,
     RecoveryActionORM,
@@ -54,6 +55,7 @@ async def db(engine) -> AsyncSession:
     factory = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with factory() as session:
         yield session
+        await session.rollback()
 
 
 @pytest.fixture
@@ -69,7 +71,11 @@ class TestObservabilityAPIIntegration:
         settings = get_settings()
         secret = settings.razorpay_webhook_secret
 
-        # 1. Seed Merchant, Customer, Policy
+        razorpay_event_id = f"event_obs_{uuid.uuid4().hex[:12]}"
+        razorpay_pay_id = f"pay_obs_{uuid.uuid4().hex[:12]}"
+        razorpay_order_id = f"order_obs_{uuid.uuid4().hex[:12]}"
+
+        # 1. Seed Merchant, Customer, Policy, Order, and Payment
         merchant_id = uuid.uuid4()
         merchant = MerchantORM(id=merchant_id, name="Obs Merchant", currency="INR")
         db.add(merchant)
@@ -77,6 +83,29 @@ class TestObservabilityAPIIntegration:
         customer = CustomerORM(id=uuid.uuid4(), merchant_id=merchant_id, external_reference="cust_obs_001")
         db.add(customer)
         await db.flush()
+
+        order = OrderORM(
+            id=uuid.uuid4(),
+            merchant_id=merchant_id,
+            customer_id=customer.id,
+            amount_minor=180000,
+            currency="INR",
+            status="CREATED",
+            razorpay_order_id=razorpay_order_id,
+        )
+        db.add(order)
+        await db.flush()
+
+        payment = PaymentORM(
+            id=uuid.uuid4(),
+            order_id=order.id,
+            customer_id=customer.id,
+            amount_minor=180000,
+            currency="INR",
+            status="CREATED",
+            razorpay_payment_id=razorpay_pay_id,
+        )
+        db.add(payment)
 
         policy = MerchantRecoveryPolicyORM(
             id=uuid.uuid4(),
@@ -89,10 +118,6 @@ class TestObservabilityAPIIntegration:
         await db.commit()
 
         # 2. Ingest payment.failed Webhook
-        razorpay_event_id = f"event_obs_{uuid.uuid4().hex[:12]}"
-        razorpay_pay_id = f"pay_obs_{uuid.uuid4().hex[:12]}"
-        razorpay_order_id = f"order_obs_{uuid.uuid4().hex[:12]}"
-
         payload_dict = {
             "entity": "event",
             "account_id": "acc_obs_test",
@@ -168,6 +193,12 @@ class TestObservabilityAPIIntegration:
         )
         await db.commit()
         assert orch_res.success is True
+
+        # Dispatch action to COMPLETED via ControlPlane (simulating outbox worker)
+        from domain.recovery.control_plane import RecoveryActionControlPlane
+        control_plane = RecoveryActionControlPlane()
+        await control_plane.dispatch_action(action_id=orch_res.action_id, session=db)
+        await db.commit()
 
         # 5. Query GET /observability/summary
         summary_resp = await client.get("/observability/summary")

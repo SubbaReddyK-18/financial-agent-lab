@@ -343,6 +343,7 @@ class RecoveryDecisionOrchestrator:
             aggregate_id=str(action_id),
             occurred_at=now,
             payload={
+                "schema_version": "1",
                 "recovery_case_id": str(case_id),
                 "payment_id": str(payment_orm.id),
                 "action_type": rec.recommended_action.value,
@@ -354,6 +355,7 @@ class RecoveryDecisionOrchestrator:
             correlation_id=correlation_id,
         )
         session.add(fin_event)
+        await session.flush()
 
         # ------------------------------------------------------------------
         # Step 7: Persist AI Decision Audit Record
@@ -373,6 +375,8 @@ class RecoveryDecisionOrchestrator:
                 provider=audit_record.provider,
                 model=audit_record.model,
                 prompt_version=audit_record.prompt_version,
+                prompt_hash=audit_record.prompt_hash,
+                agent_version=audit_record.agent_version,
                 recommended_action=audit_record.recommended_action.value,
                 confidence=audit_record.confidence,
                 reasoning_codes=audit_record.reasoning_codes,

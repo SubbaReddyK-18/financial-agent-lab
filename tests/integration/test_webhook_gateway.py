@@ -19,8 +19,10 @@ from sqlalchemy.pool import NullPool
 from apps.api.main import app
 from apps.api.settings import get_settings
 from domain.shared.enums import PaymentStatus, RecoveryCaseStatus
+from infrastructure.database.orm.customer import CustomerORM
 from infrastructure.database.orm.events import FinancialEventORM
-from infrastructure.database.orm.payment import PaymentORM
+from infrastructure.database.orm.merchant import MerchantORM
+from infrastructure.database.orm.payment import OrderORM, PaymentORM
 from infrastructure.database.orm.recovery import RecoveryCaseORM
 from infrastructure.database.orm.webhook import RazorpayWebhookEventORM
 from infrastructure.workers.runner import process_pending_webhooks
@@ -31,6 +33,53 @@ from tests.fixtures.razorpay_webhooks import (
 )
 
 pytestmark = pytest.mark.integration
+
+
+async def seed_authoritative_payment_and_order(
+    db: AsyncSession,
+    *,
+    payment_id: str,
+    order_id: str | None = None,
+    amount_minor: int = 150000,
+    currency: str = "INR",
+) -> tuple[PaymentORM, OrderORM]:
+    if order_id is None:
+        order_id = f"order_{payment_id}"
+    merchant_id = uuid.uuid4()
+    customer_id = uuid.uuid4()
+    merchant = MerchantORM(id=merchant_id, name="Test Merchant", currency=currency)
+    customer = CustomerORM(
+        id=customer_id, merchant_id=merchant_id, external_reference=f"cust_{customer_id.hex[:8]}"
+    )
+    db.add(merchant)
+    db.add(customer)
+    await db.flush()
+
+    order = OrderORM(
+        id=uuid.uuid4(),
+        merchant_id=merchant_id,
+        customer_id=customer_id,
+        amount_minor=amount_minor,
+        currency=currency,
+        status="CREATED",
+        razorpay_order_id=order_id,
+    )
+    db.add(order)
+    await db.flush()
+
+    payment = PaymentORM(
+        id=uuid.uuid4(),
+        order_id=order.id,
+        customer_id=customer_id,
+        amount_minor=amount_minor,
+        currency=currency,
+        status="CREATED",
+        razorpay_payment_id=payment_id,
+    )
+    db.add(payment)
+    await db.flush()
+    await db.commit()
+    return payment, order
 
 
 @pytest.fixture
@@ -94,7 +143,7 @@ class TestWebhookEndpointIngestion:
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 400
-        assert "Missing required headers" in response.json()["detail"]
+        assert "Missing required headers" in response.json()["message"]
 
     async def test_invalid_signature_rejected_with_401(self, client: AsyncClient):
         event_id = f"evt_{uuid.uuid4().hex[:16]}"
@@ -110,7 +159,7 @@ class TestWebhookEndpointIngestion:
             headers=headers,
         )
         assert response.status_code == 401
-        assert "Invalid webhook signature" in response.json()["detail"]
+        assert "Invalid webhook signature" in response.json()["message"]
 
     async def test_malformed_json_body_rejected(self, client: AsyncClient):
         secret = get_settings().razorpay_webhook_secret
@@ -154,12 +203,18 @@ class TestWorkerProcessingAndReconciliation:
         self, client: AsyncClient, db: AsyncSession
     ):
         payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+        order_id = f"order_{uuid.uuid4().hex[:12]}"
         event_id = f"evt_{uuid.uuid4().hex[:12]}"
+
+        await seed_authoritative_payment_and_order(
+            db, payment_id=payment_id, order_id=order_id, amount_minor=500000
+        )
 
         raw_body, headers = build_signed_webhook_request(
             event_type="payment.failed",
             event_id=event_id,
             payment_id=payment_id,
+            order_id=order_id,
             amount_minor=500000,
             error_code="INSUFFICIENT_FUNDS",
             error_description="Card declined due to low funds.",
@@ -207,14 +262,20 @@ class TestWorkerProcessingAndReconciliation:
         2. later payment.captured arrives (UPI retry / late bank capture) -> status CAPTURED, RecoveryCase RECOVERED
         """
         payment_id = f"pay_reconcile_{uuid.uuid4().hex[:12]}"
+        order_id = f"order_reconcile_{uuid.uuid4().hex[:12]}"
         event_failed_id = f"evt_fail_{uuid.uuid4().hex[:12]}"
         event_cap_id = f"evt_cap_{uuid.uuid4().hex[:12]}"
+
+        await seed_authoritative_payment_and_order(
+            db, payment_id=payment_id, order_id=order_id, amount_minor=300000
+        )
 
         # Step 1: Failed event
         raw_failed, headers_failed = build_signed_webhook_request(
             event_type="payment.failed",
             event_id=event_failed_id,
             payment_id=payment_id,
+            order_id=order_id,
             amount_minor=300000,
         )
         await client.post("/webhooks/razorpay", content=raw_failed, headers=headers_failed)
@@ -226,6 +287,7 @@ class TestWorkerProcessingAndReconciliation:
             event_type="payment.captured",
             event_id=event_cap_id,
             payment_id=payment_id,
+            order_id=order_id,
             amount_minor=300000,
         )
         await client.post("/webhooks/razorpay", content=raw_cap, headers=headers_cap)
@@ -255,14 +317,20 @@ class TestWorkerProcessingAndReconciliation:
         and cannot open a false recovery case.
         """
         payment_id = f"pay_nodowngrade_{uuid.uuid4().hex[:12]}"
+        order_id = f"order_nodowngrade_{uuid.uuid4().hex[:12]}"
         event_cap_id = f"evt_cap_{uuid.uuid4().hex[:12]}"
         event_late_fail_id = f"evt_latefail_{uuid.uuid4().hex[:12]}"
+
+        await seed_authoritative_payment_and_order(
+            db, payment_id=payment_id, order_id=order_id, amount_minor=200000
+        )
 
         # Step 1: Captured first
         raw_cap, headers_cap = build_signed_webhook_request(
             event_type="payment.captured",
             event_id=event_cap_id,
             payment_id=payment_id,
+            order_id=order_id,
             amount_minor=200000,
         )
         await client.post("/webhooks/razorpay", content=raw_cap, headers=headers_cap)
@@ -274,6 +342,7 @@ class TestWorkerProcessingAndReconciliation:
             event_type="payment.failed",
             event_id=event_late_fail_id,
             payment_id=payment_id,
+            order_id=order_id,
             amount_minor=200000,
         )
         await client.post("/webhooks/razorpay", content=raw_fail, headers=headers_fail)
@@ -284,6 +353,7 @@ class TestWorkerProcessingAndReconciliation:
         payment = await db.scalar(
             select(PaymentORM).where(PaymentORM.razorpay_payment_id == payment_id)
         )
+        assert payment is not None
         assert payment.status == PaymentStatus.CAPTURED.value
 
         # No recovery case should exist for captured payment
@@ -302,14 +372,20 @@ class TestWorkerProcessingAndReconciliation:
         Final state must remain CAPTURED.
         """
         payment_id = f"pay_ooo_{uuid.uuid4().hex[:12]}"
+        order_id = f"order_ooo_{uuid.uuid4().hex[:12]}"
         event_cap_id = f"evt_cap_ooo_{uuid.uuid4().hex[:12]}"
         event_auth_id = f"evt_auth_ooo_{uuid.uuid4().hex[:12]}"
+
+        await seed_authoritative_payment_and_order(
+            db, payment_id=payment_id, order_id=order_id, amount_minor=100000
+        )
 
         # Captured arrives first
         raw_cap, headers_cap = build_signed_webhook_request(
             event_type="payment.captured",
             event_id=event_cap_id,
             payment_id=payment_id,
+            order_id=order_id,
             amount_minor=100000,
         )
         await client.post("/webhooks/razorpay", content=raw_cap, headers=headers_cap)
@@ -321,6 +397,7 @@ class TestWorkerProcessingAndReconciliation:
             event_type="payment.authorized",
             event_id=event_auth_id,
             payment_id=payment_id,
+            order_id=order_id,
             amount_minor=100000,
         )
         await client.post("/webhooks/razorpay", content=raw_auth, headers=headers_auth)
@@ -330,4 +407,5 @@ class TestWorkerProcessingAndReconciliation:
         payment = await db.scalar(
             select(PaymentORM).where(PaymentORM.razorpay_payment_id == payment_id)
         )
+        assert payment is not None
         assert payment.status == PaymentStatus.CAPTURED.value

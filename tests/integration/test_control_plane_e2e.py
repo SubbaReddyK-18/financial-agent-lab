@@ -85,6 +85,17 @@ class TestControlPlaneEndToEnd:
         db_session.add(customer)
         await db_session.flush()
 
+        order = OrderORM(
+            id=order_id,
+            merchant_id=merchant_id,
+            customer_id=customer_id,
+            amount_minor=1000_00,
+            currency="INR",
+            status="CREATED",
+        )
+        db_session.add(order)
+        await db_session.flush()
+
         policy = MerchantRecoveryPolicyORM(
             merchant_id=merchant_id,
             maximum_discount_percent=10,
@@ -93,7 +104,6 @@ class TestControlPlaneEndToEnd:
         )
         payment = PaymentORM(
             id=payment_id,
-            merchant_id=merchant_id,
             customer_id=customer_id,
             order_id=order_id,
             amount_minor=1000_00,
@@ -104,7 +114,6 @@ class TestControlPlaneEndToEnd:
         attempt = PaymentAttemptORM(
             payment_id=payment_id,
             attempt_number=1,
-            amount_minor=1000_00,
             status="FAILED",
             failure_code="GATEWAY_TIMEOUT",
         )
@@ -122,12 +131,13 @@ class TestControlPlaneEndToEnd:
 
         # 2. Orchestrate decision with mock AI
         canned_ai_json = """{
-            "action": "PAYMENT_LINK",
+            "recommended_action": "PAYMENT_LINK",
             "confidence": 0.95,
             "reasoning_codes": ["TIMEOUT_RETRY_BENEFICIAL"],
             "uncertainty": "LOW",
             "requires_human_review": false,
-            "estimated_recovery_probability": 0.85,
+            "estimated_action_success_probability": 0.85,
+            "estimated_natural_recovery_probability": 0.20,
             "recommended_discount_percent": 5
         }"""
         client = MockLLMClient(canned_response=canned_ai_json)
@@ -145,10 +155,17 @@ class TestControlPlaneEndToEnd:
         # 3. Assert orchestration and control plane outcomes
         assert result.success is True
         assert result.action_type == RecoveryActionType.PAYMENT_LINK
-        assert result.action_status == RecoveryActionStatus.COMPLETED.value
-        assert result.execution_result is not None
-        assert result.execution_result.status == "COMPLETED"
-        assert "TEST_PLINK_" in result.execution_result.execution_reference
+        assert result.action_status == RecoveryActionStatus.APPROVED.value
+
+        # Execute dispatch via Control Plane (outbox worker behavior)
+        exec_res = await control_plane.dispatch_action(
+            action_id=result.action_id, session=db_session
+        )
+        await db_session.commit()
+
+        assert exec_res is not None
+        assert exec_res.status == "COMPLETED"
+        assert "TEST_PLINK_" in exec_res.execution_reference
 
         # Verify database state
         persisted_action = await db_session.scalar(
@@ -173,6 +190,7 @@ class TestControlPlaneEndToEnd:
     async def test_idempotent_re_dispatch_suppression(self, db_session: AsyncSession):
         merchant_id = uuid.uuid4()
         customer_id = uuid.uuid4()
+        order_id = uuid.uuid4()
         payment_id = uuid.uuid4()
         case_id = uuid.uuid4()
         action_id = uuid.uuid4()
@@ -182,10 +200,21 @@ class TestControlPlaneEndToEnd:
         db_session.add_all([merchant, customer])
         await db_session.flush()
 
-        payment = PaymentORM(
-            id=payment_id,
+        order = OrderORM(
+            id=order_id,
             merchant_id=merchant_id,
             customer_id=customer_id,
+            amount_minor=5000_00,
+            currency="INR",
+            status="CREATED",
+        )
+        db_session.add(order)
+        await db_session.flush()
+
+        payment = PaymentORM(
+            id=payment_id,
+            customer_id=customer_id,
+            order_id=order_id,
             amount_minor=5000_00,
             currency="INR",
             payment_method="UPI",
@@ -221,6 +250,7 @@ class TestControlPlaneEndToEnd:
     async def test_stale_action_cancelled_when_payment_captured(self, db_session: AsyncSession):
         merchant_id = uuid.uuid4()
         customer_id = uuid.uuid4()
+        order_id = uuid.uuid4()
         payment_id = uuid.uuid4()
         case_id = uuid.uuid4()
         action_id = uuid.uuid4()
@@ -230,11 +260,22 @@ class TestControlPlaneEndToEnd:
         db_session.add_all([merchant, customer])
         await db_session.flush()
 
+        order = OrderORM(
+            id=order_id,
+            merchant_id=merchant_id,
+            customer_id=customer_id,
+            amount_minor=2000_00,
+            currency="INR",
+            status="COMPLETED",
+        )
+        db_session.add(order)
+        await db_session.flush()
+
         # Payment resolved organically / captured
         payment = PaymentORM(
             id=payment_id,
-            merchant_id=merchant_id,
             customer_id=customer_id,
+            order_id=order_id,
             amount_minor=2000_00,
             currency="INR",
             payment_method="UPI",
@@ -290,6 +331,7 @@ class TestControlPlaneEndToEnd:
     async def test_outbox_batch_processing_and_claiming(self, db_session: AsyncSession):
         merchant_id = uuid.uuid4()
         customer_id = uuid.uuid4()
+        order_id = uuid.uuid4()
         payment_id = uuid.uuid4()
         case_id = uuid.uuid4()
         action_id = uuid.uuid4()
@@ -297,6 +339,17 @@ class TestControlPlaneEndToEnd:
         merchant = MerchantORM(id=merchant_id, name="CP Merchant 4", currency="INR")
         customer = CustomerORM(id=customer_id, merchant_id=merchant_id, external_reference="cust_cp_004")
         db_session.add_all([merchant, customer])
+        await db_session.flush()
+
+        order = OrderORM(
+            id=order_id,
+            merchant_id=merchant_id,
+            customer_id=customer_id,
+            amount_minor=1500_00,
+            currency="INR",
+            status="CREATED",
+        )
+        db_session.add(order)
         await db_session.flush()
 
         policy = MerchantRecoveryPolicyORM(
@@ -307,8 +360,8 @@ class TestControlPlaneEndToEnd:
         )
         payment = PaymentORM(
             id=payment_id,
-            merchant_id=merchant_id,
             customer_id=customer_id,
+            order_id=order_id,
             amount_minor=1500_00,
             currency="INR",
             payment_method="CARD",
@@ -345,11 +398,12 @@ class TestControlPlaneEndToEnd:
 
         # Batch process outbox
         cp = RecoveryActionControlPlane()
-        results = await cp.process_outbox_batch(session=db_session, limit=10)
+        results = await cp.process_outbox_batch(session=db_session, limit=50)
 
-        assert len(results) >= 1
-        assert results[0].status == "COMPLETED"
-        assert results[0].action_type == RecoveryActionType.WAIT
+        target_res = next((r for r in results if r.action_id == action_id), None)
+        assert target_res is not None
+        assert target_res.status == "COMPLETED"
+        assert target_res.action_type == RecoveryActionType.WAIT
 
         refreshed_outbox = await db_session.scalar(
             select(RecoveryOutboxEventORM).where(

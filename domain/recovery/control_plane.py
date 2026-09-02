@@ -99,7 +99,8 @@ class RecoveryActionControlPlane:
         no dispatch event until an authenticated approval operation succeeds.
         """
         now = now or _utcnow()
-        attempt_number = len(case.actions) + 1 if hasattr(case, "actions") and case.actions else 1
+        case_actions = case.__dict__.get("actions")
+        attempt_number = len(case_actions) + 1 if case_actions else 1
         idem_key = generate_action_idempotency_key(
             case_id=case.id,
             action_type=action_type,

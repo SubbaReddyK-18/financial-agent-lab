@@ -366,6 +366,7 @@ async def process_single_webhook_event(
                 opened_at=_utcnow(),
             )
             session.add(new_case)
+            await session.flush()
             recovery_case_id = new_case.id
             # Decisioning is deliberately deferred to a worker after this
             # reconciliation transaction commits; no LLM runs here.

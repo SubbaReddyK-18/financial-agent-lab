@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.intelligence.ai.prompt import RecoveryPromptBuilder
 from domain.intelligence.simulation.runner import ScenarioBatchRunner
 from infrastructure.database.connection import get_db_session
 from infrastructure.database.orm.simulation import SimulationRunORM
@@ -82,6 +83,8 @@ async def run_simulation_experiment(
         scenario_count=result.scenario_count,
         seed=result.seed,
         version=result.version,
+        prompt_hash=RecoveryPromptBuilder.content_hash,
+        agent_bundle_version=RecoveryPromptBuilder.bundle_version,
         duration_ms=int(result.duration_ms),
         no_intervention_metrics=asdict(result.no_intervention_metrics),
         baseline_metrics=asdict(result.baseline_metrics),

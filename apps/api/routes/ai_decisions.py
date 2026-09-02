@@ -136,6 +136,8 @@ async def evaluate_single_decision(
             provider=audit.provider,
             model=audit.model,
             prompt_version=audit.prompt_version,
+            prompt_hash=audit.prompt_hash,
+            agent_version=audit.agent_version,
             recommended_action=audit.recommended_action.value,
             confidence=audit.confidence,
             reasoning_codes=audit.reasoning_codes,

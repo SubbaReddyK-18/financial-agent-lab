@@ -75,7 +75,7 @@ class TestRecoveryOrchestrationE2E:
         settings = get_settings()
         secret = settings.razorpay_webhook_secret
 
-        # 1. Setup Merchant, Customer, Policy in PostgreSQL
+        # 1. Setup Merchant, Customer, Policy, Order, and Payment in PostgreSQL
         merchant_id = uuid.uuid4()
         merchant = MerchantORM(
             id=merchant_id,
@@ -91,6 +91,34 @@ class TestRecoveryOrchestrationE2E:
             external_reference="cust_e2e_001",
         )
         db.add(customer)
+        await db.flush()
+
+        razorpay_event_id = f"event_e2e_{uuid.uuid4().hex[:12]}"
+        razorpay_pay_id = f"pay_e2e_{uuid.uuid4().hex[:12]}"
+        razorpay_order_id = f"order_e2e_{uuid.uuid4().hex[:12]}"
+
+        order = OrderORM(
+            id=uuid.uuid4(),
+            merchant_id=merchant_id,
+            customer_id=customer_id,
+            amount_minor=250000,
+            currency="INR",
+            status="CREATED",
+            razorpay_order_id=razorpay_order_id,
+        )
+        db.add(order)
+        await db.flush()
+
+        payment = PaymentORM(
+            id=uuid.uuid4(),
+            order_id=order.id,
+            customer_id=customer_id,
+            amount_minor=250000,
+            currency="INR",
+            status="CREATED",
+            razorpay_payment_id=razorpay_pay_id,
+        )
+        db.add(payment)
 
         policy = MerchantRecoveryPolicyORM(
             id=uuid.uuid4(),
@@ -104,10 +132,6 @@ class TestRecoveryOrchestrationE2E:
         await db.commit()
 
         # 2. Ingest payment.failed Webhook
-        razorpay_event_id = f"event_e2e_{uuid.uuid4().hex[:12]}"
-        razorpay_pay_id = f"pay_e2e_{uuid.uuid4().hex[:12]}"
-        razorpay_order_id = f"order_e2e_{uuid.uuid4().hex[:12]}"
-
         payload_dict = {
             "entity": "event",
             "account_id": "acc_test_e2e_123",
@@ -188,13 +212,20 @@ class TestRecoveryOrchestrationE2E:
         )
         await db.commit()
 
-        # 6. Verify Orchestration Outcome
         assert orch_res.success is True
         assert orch_res.action_type == RecoveryActionType.RETRY
-        assert orch_res.action_status == "COMPLETED"
+        assert orch_res.action_status == "APPROVED"
+
+        # Dispatch via ControlPlane (simulating outbox worker execution)
+        from domain.recovery.control_plane import RecoveryActionControlPlane
+        cp = RecoveryActionControlPlane()
+        exec_res = await cp.dispatch_action(action_id=orch_res.action_id, session=db)
+        await db.commit()
+
+        assert exec_res is not None
+        assert exec_res.status == "COMPLETED"
         assert orch_res.fallback_used is False
-        assert orch_res.execution_result is not None
-        assert "TEST_RETRY_" in orch_res.execution_result.execution_reference
+        assert "TEST_RETRY_" in exec_res.execution_reference
 
         # 7. Verify Database Records
         # A. Recovery Action Record
@@ -219,7 +250,7 @@ class TestRecoveryOrchestrationE2E:
             )
         )
         assert fin_event is not None
-        assert fin_event.event_type == "RECOVERY_ACTION_COMPLETED"
+        assert fin_event.event_type == "RECOVERY_ACTION_APPROVED"
         assert fin_event.correlation_id == "e2e_test_correlation_123"
 
         # D. AI Decision Audit Record Persisted

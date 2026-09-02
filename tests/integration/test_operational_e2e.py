@@ -77,9 +77,13 @@ class TestOperationalPipelineEndToEnd:
         settings = get_settings()
         secret = settings.razorpay_webhook_secret
 
-        # 1. Setup Merchant, Customer, and Policy in DB
+        # 1. Setup Merchant, Customer, Policy, Order, and Payment in DB
         merchant_id = uuid.uuid4()
         customer_id = uuid.uuid4()
+        payment_id_str = f"pay_op_{uuid.uuid4().hex[:12]}"
+        order_id_str = f"order_op_{uuid.uuid4().hex[:12]}"
+        event_id = f"evt_op_test_{uuid.uuid4().hex[:12]}"
+
         merchant = MerchantORM(id=merchant_id, name="Operational Test Merchant", currency="INR")
         customer = CustomerORM(id=customer_id, merchant_id=merchant_id, external_reference="cust_op_001")
         policy = MerchantRecoveryPolicyORM(
@@ -89,15 +93,35 @@ class TestOperationalPipelineEndToEnd:
             cooldown_hours=2,
         )
         db_session.add_all([merchant, customer, policy])
+        await db_session.flush()
+
+        order = OrderORM(
+            id=uuid.uuid4(),
+            merchant_id=merchant_id,
+            customer_id=customer_id,
+            amount_minor=5000_00,
+            currency="INR",
+            status="CREATED",
+            razorpay_order_id=order_id_str,
+        )
+        payment = PaymentORM(
+            id=uuid.uuid4(),
+            order_id=order.id,
+            customer_id=customer_id,
+            amount_minor=5000_00,
+            currency="INR",
+            status="CREATED",
+            razorpay_payment_id=payment_id_str,
+        )
+        db_session.add_all([order, payment])
         await db_session.commit()
 
         # 2. Ingest payment.failed webhook
-        event_id = f"evt_op_test_{uuid.uuid4().hex[:12]}"
-        payment_id_str = f"pay_op_{uuid.uuid4().hex[:12]}"
         raw_body, headers = build_signed_webhook_request(
             event_type="payment.failed",
             payment_id=payment_id_str,
-            amount_paise=5000_00,
+            order_id=order_id_str,
+            amount_minor=5000_00,
             event_id=event_id,
             secret=secret,
             error_code="BAD_REQUEST_ERROR",
@@ -115,7 +139,7 @@ class TestOperationalPipelineEndToEnd:
             )
         )
         assert inbox_event is not None
-        await process_single_webhook_event(inbox_event.id, db_session)
+        await process_single_webhook_event(inbox_event, db_session)
         await db_session.commit()
 
         # 4. Verify Payment, PaymentAttempt, and RecoveryCase created
@@ -133,12 +157,13 @@ class TestOperationalPipelineEndToEnd:
 
         # 5. Run RecoveryDecisionOrchestrator with Mock AI provider
         canned_json = """{
-            "action": "PAYMENT_LINK",
+            "recommended_action": "PAYMENT_LINK",
             "confidence": 0.92,
             "reasoning_codes": ["TIMEOUT_RETRY_BENEFICIAL"],
             "uncertainty": "LOW",
             "requires_human_review": false,
-            "estimated_recovery_probability": 0.80,
+            "estimated_action_success_probability": 0.80,
+            "estimated_natural_recovery_probability": 0.20,
             "recommended_discount_percent": 5
         }"""
         provider = AIDecisionProvider(client=MockLLMClient(canned_response=canned_json))
@@ -153,7 +178,14 @@ class TestOperationalPipelineEndToEnd:
         await db_session.commit()
 
         assert orch_result.success is True
-        assert orch_result.action_status == RecoveryActionStatus.COMPLETED.value
+        assert orch_result.action_status == RecoveryActionStatus.APPROVED.value
+
+        # Dispatch via ControlPlane (simulating outbox worker execution)
+        exec_res = await control_plane.dispatch_action(
+            action_id=orch_result.action_id, session=db_session
+        )
+        await db_session.commit()
+        assert exec_res.status == "COMPLETED"
 
         # Verify Outbox record
         outbox = await db_session.scalar(
@@ -189,7 +221,7 @@ class TestOperationalPipelineEndToEnd:
         # Liveness
         res_h = await client.get("/health")
         assert res_h.status_code == 200
-        assert res_h.json()["status"] == "healthy"
+        assert res_h.json()["status"] == "ok"
 
         # Readiness
         res_r = await client.get("/ready")
