@@ -11,6 +11,7 @@ import type {
   HealthResponse,
   ObservabilitySummaryResponse,
   ReadyResponse,
+  RecoveryAuditDetail,
 } from './types';
 
 /** Prefix for all API requests — routed through the Vite proxy in dev. */
@@ -62,3 +63,12 @@ export const fetchReady = (signal?: AbortSignal) =>
 /** GET /observability/summary — aggregate decision & economic metrics */
 export const fetchObservabilitySummary = (signal?: AbortSignal) =>
   get<ObservabilitySummaryResponse>('/observability/summary', signal);
+
+/**
+ * GET /observability/recovery/{caseId} — full decision audit for a recovery case.
+ * Covers Decision → Policy → Economics → Dispatch → Audit in a single payload.
+ */
+export const fetchRecoveryCaseAudit = (
+  caseId: string,
+  signal?: AbortSignal,
+) => get<RecoveryAuditDetail>(`/observability/recovery/${caseId}`, signal);

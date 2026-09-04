@@ -125,3 +125,126 @@ export interface ObservabilitySummaryResponse {
   decision_metrics: DecisionMetrics;
   economic_metrics: EconomicMetrics;
 }
+
+// ---------------------------------------------------------------------------
+// Recovery Case Audit — GET /observability/recovery/{recovery_case_id}
+//                       GET /observability/decisions/{decision_id}
+// ---------------------------------------------------------------------------
+
+/**
+ * Contextual snapshot captured at decision time from the live payment/customer record.
+ * All amounts are integer minor units (paise).
+ */
+export interface ObservableContext {
+  payment_id: string;
+  /** Payment amount in paise */
+  amount_minor: number;
+  currency: string;
+  /** e.g. "CARD", "UPI", "NET_BANKING" */
+  payment_method: string;
+  /** e.g. "GATEWAY_TIMEOUT", "INSUFFICIENT_FUNDS" */
+  failure_code: string;
+  attempt_count: number;
+  customer_segment: string;
+  customer_historical_success_rate: number;
+  is_cooldown_active: boolean;
+  is_business_hours: boolean;
+}
+
+/**
+ * Economic model evaluation output produced by EconomicEngine.
+ * All monetary values are integer minor units (paise). Divide by 100 for INR display.
+ */
+export interface EconomicEvaluation {
+  /** Gross revenue model projection (paise) */
+  expected_gross_revenue_minor: number;
+  /** Natural recovery baseline projection (paise) */
+  expected_natural_revenue_minor: number;
+  /** Incremental over baseline (paise) */
+  expected_incremental_revenue_minor: number;
+  /** Discount / retry intervention cost (paise) */
+  intervention_cost_minor: number;
+  /** Net of intervention + inference costs (paise) */
+  expected_net_incremental_revenue_minor: number;
+  /** Estimated LLM inference cost (paise) */
+  estimated_llm_cost_minor: number;
+}
+
+/**
+ * Full structured audit record returned by
+ *   GET /observability/recovery/{recovery_case_id}
+ *   GET /observability/decisions/{decision_id}
+ *
+ * Covers Decision → Policy → Economics → Dispatch → Audit in a single payload.
+ */
+export interface RecoveryAuditDetail {
+  decision_id: string;
+  /** Same as the recovery case UUID when fetched via /recovery/{id} */
+  scenario_id: string | null;
+  recovery_case_id: string | null;
+  payment_id: string | null;
+  correlation_id: string | null;
+  decision_request_id: string | null;
+  audit_schema_version: string;
+  /** ISO 8601 UTC timestamp */
+  created_at: string;
+
+  // AI provenance
+  provider: string;
+  model: string;
+  prompt_version: string;
+
+  // Decision output
+  observable_context: ObservableContext | null;
+  proposed_action: string;
+  confidence: number;
+  /** "LOW" | "MEDIUM" | "HIGH" */
+  uncertainty: string;
+  reasoning_codes: string[];
+
+  // Policy gate
+  policy_approved: boolean;
+  requires_human_review: boolean;
+  fallback_used: boolean;
+  fallback_reason: string | null;
+  final_action: string;
+  discount_percent_offered: number;
+
+  // Economic evaluation (null when record pre-dates EconomicEngine)
+  economic_evaluation: EconomicEvaluation | null;
+
+  // Execution / dispatch
+  execution_status: string | null;
+  execution_reference: string | null;
+  execution_details: Record<string, unknown> | null;
+
+  // Recovery action linkage
+  recovery_action_id: string | null;
+  action_idempotency_key: string | null;
+
+  // Outbox / dispatch
+  outbox_event_id: string | null;
+  outbox_status: string | null;
+  execution_attempt: number | null;
+
+  // Approval record (null when no human approval is required)
+  approval: Record<string, unknown> | null;
+
+  // Payment linkage
+  financial_event_id: string | null;
+  payment_status: string | null;
+
+  // Latency / LLM cost
+  latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  estimated_llm_cost_minor: number | null;
+
+  // Internal JSON blobs (available but not typed beyond object)
+  ai_proposal: Record<string, unknown> | null;
+  proposal_validation: Record<string, unknown> | null;
+  policy_result: Record<string, unknown> | null;
+  authorization_result: Record<string, unknown> | null;
+  economic_candidates: unknown[];
+  selection_result: Record<string, unknown> | null;
+}
