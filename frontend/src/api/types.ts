@@ -263,3 +263,47 @@ export interface ApprovalActionResponse {
   status: 'APPROVED' | 'CANCELLED';
   execution: 'queued' | 'not_queued';
 }
+
+// ---------------------------------------------------------------------------
+// Simulation Benchmark — POST /simulation/run
+// ---------------------------------------------------------------------------
+
+export interface RunSimulationRequest {
+  scenario_count?: number;
+  seed?: number;
+  run_name?: string;
+}
+
+export interface PolicySummaryResponse {
+  provider_name: string;
+  scenario_count: number;
+  total_amount_at_risk_minor: number;
+  expected_gross_revenue_minor: number;
+  expected_natural_revenue_minor: number;
+  expected_incremental_revenue_minor: number;
+  expected_net_incremental_revenue_minor: number;
+  realized_gross_revenue_minor: number;
+  realized_natural_revenue_minor: number;
+  realized_incremental_revenue_minor: number;
+  realized_net_incremental_revenue_minor: number;
+  total_interventions: number;
+  intervention_rate: number;
+  unnecessary_interventions: number;
+  unnecessary_intervention_rate: number;
+  missed_opportunities: number;
+  missed_opportunity_rate: number;
+  policy_overrides_count: number;
+  action_distribution: Record<string, number>;
+}
+
+export interface SimulationRunResponse {
+  run_id: string;
+  run_name: string;
+  scenario_count: number;
+  seed: number;
+  version: string;
+  duration_ms: number;
+  no_intervention_metrics: PolicySummaryResponse;
+  baseline_metrics: PolicySummaryResponse;
+  oracle_metrics: PolicySummaryResponse;
+}

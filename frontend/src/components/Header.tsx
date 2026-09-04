@@ -32,7 +32,7 @@ export const Header: React.FC = () => {
 
         <div className="status-pill">
           <Cpu size={14} style={{ color: '#8b5cf6' }} />
-          <span>LLM Provider: <strong>Mock LLM (0 Quota Mode)</strong></span>
+          <span>Runtime AI Provider: <strong>Mock LLM (0 Quota Mode)</strong></span>
         </div>
       </div>
     </header>

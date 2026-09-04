@@ -13,6 +13,8 @@ import type {
   ObservabilitySummaryResponse,
   ReadyResponse,
   RecoveryAuditDetail,
+  RunSimulationRequest,
+  SimulationRunResponse,
 } from './types';
 
 /** Prefix for all API requests — routed through the Vite proxy in dev. */
@@ -137,6 +139,25 @@ export const rejectRecoveryAction = (
   post<ApprovalActionResponse>(
     `/recovery-actions/${actionId}/reject`,
     { reason: reason || null },
+    apiKey ? { 'X-API-Key': apiKey } : {},
+    signal,
+  );
+
+/**
+ * POST /simulation/run — execute a batch simulation experiment comparing Baseline vs Oracle.
+ */
+export const runSimulationExperiment = (
+  req: RunSimulationRequest = {},
+  apiKey?: string,
+  signal?: AbortSignal,
+) =>
+  post<SimulationRunResponse>(
+    '/simulation/run',
+    {
+      scenario_count: req.scenario_count ?? 1000,
+      seed: req.seed ?? 42,
+      run_name: req.run_name ?? 'lab_simulation_experiment',
+    },
     apiKey ? { 'X-API-Key': apiKey } : {},
     signal,
   );

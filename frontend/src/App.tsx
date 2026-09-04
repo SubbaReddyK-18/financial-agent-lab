@@ -8,9 +8,14 @@ import { ApprovalsView } from './views/ApprovalsView';
 import { EconomicsView } from './views/EconomicsView';
 import { SimulationView } from './views/SimulationView';
 import { AuditView } from './views/AuditView';
+import { useOperationsSummary } from './hooks/useOperationsSummary';
 
 export const App: React.FC = () => {
   const [activeSection, setActiveSection] = useState<ControlRoomSection>('operations');
+  const { data: opsData } = useOperationsSummary();
+
+  const pendingApprovalsCount =
+    opsData.summary?.decision_metrics.human_review_required_count ?? 0;
 
   const renderActiveView = () => {
     switch (activeSection) {
@@ -37,7 +42,7 @@ export const App: React.FC = () => {
       <Navigation
         activeSection={activeSection}
         onSelectSection={setActiveSection}
-        pendingApprovalsCount={2}
+        pendingApprovalsCount={pendingApprovalsCount}
       />
       <main className="main-content">
         {renderActiveView()}

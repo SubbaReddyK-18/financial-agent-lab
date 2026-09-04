@@ -30,8 +30,8 @@ import { useRecoveryAudit } from '../hooks/useRecoveryAudit';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** The demo recovery case that already exists in production PostgreSQL. */
-const DEMO_CASE_ID = '14ec8d3a-51cd-4107-8624-8b3b07bd49d8';
+/** The hero recovery case that exists in production PostgreSQL (₹25,000 PAYMENT_LINK). */
+const DEMO_CASE_ID = '63f5c724-61b7-4679-91ae-d9862eca9deb';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -633,10 +633,10 @@ export const DecisionsView: React.FC = () => {
             }}
           >
             <BrainCircuit size={14} style={{ color: 'var(--accent-purple)' }} />
-            AI Provenance
+            Recorded Decision Provenance (Evaluation Record)
           </div>
-          <InfoRow label="Provider" value={data.provider} />
-          <InfoRow label="Model" value={data.model} mono />
+          <InfoRow label="Evaluation Provider" value={data.provider} />
+          <InfoRow label="Evaluation Model" value={data.model} mono />
           <InfoRow label="Prompt version" value={data.prompt_version} mono />
           <InfoRow label="Schema version" value={data.audit_schema_version} />
           <InfoRow label="Latency" value={data.latency_ms != null ? `${data.latency_ms} ms` : '—'} />
