@@ -248,3 +248,18 @@ export interface RecoveryAuditDetail {
   economic_candidates: unknown[];
   selection_result: Record<string, unknown> | null;
 }
+
+// ---------------------------------------------------------------------------
+// Recovery Action Approvals — POST /recovery-actions/{action_id}/approve
+//                           POST /recovery-actions/{action_id}/reject
+// ---------------------------------------------------------------------------
+
+export interface ApprovalActionRequest {
+  reason?: string | null;
+}
+
+export interface ApprovalActionResponse {
+  action_id: string;
+  status: 'APPROVED' | 'CANCELLED';
+  execution: 'queued' | 'not_queued';
+}

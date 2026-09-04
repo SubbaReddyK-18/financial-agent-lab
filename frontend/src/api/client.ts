@@ -8,6 +8,7 @@
  */
 
 import type {
+  ApprovalActionResponse,
   HealthResponse,
   ObservabilitySummaryResponse,
   ReadyResponse,
@@ -48,6 +49,39 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function post<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const reqHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    ...headers,
+  };
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: reqHeaders,
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const respBody = await response.json();
+      detail = respBody?.detail ?? detail;
+    } catch {
+      // swallow parse errors
+    }
+    throw new ApiError(response.status, `${response.status} ${detail}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 // ---------------------------------------------------------------------------
 // Public API surface
 // ---------------------------------------------------------------------------
@@ -72,3 +106,37 @@ export const fetchRecoveryCaseAudit = (
   caseId: string,
   signal?: AbortSignal,
 ) => get<RecoveryAuditDetail>(`/observability/recovery/${caseId}`, signal);
+
+/**
+ * POST /recovery-actions/{actionId}/approve — human authorization of a pending action.
+ * Transitions status to APPROVED and atomically enqueues transactional outbox dispatch.
+ */
+export const approveRecoveryAction = (
+  actionId: string,
+  reason?: string | null,
+  apiKey?: string,
+  signal?: AbortSignal,
+) =>
+  post<ApprovalActionResponse>(
+    `/recovery-actions/${actionId}/approve`,
+    { reason: reason || null },
+    apiKey ? { 'X-API-Key': apiKey } : {},
+    signal,
+  );
+
+/**
+ * POST /recovery-actions/{actionId}/reject — managerial rejection of a proposed recovery action.
+ * Transitions status to CANCELLED and marks action as not queued.
+ */
+export const rejectRecoveryAction = (
+  actionId: string,
+  reason?: string | null,
+  apiKey?: string,
+  signal?: AbortSignal,
+) =>
+  post<ApprovalActionResponse>(
+    `/recovery-actions/${actionId}/reject`,
+    { reason: reason || null },
+    apiKey ? { 'X-API-Key': apiKey } : {},
+    signal,
+  );
