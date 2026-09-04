@@ -528,3 +528,22 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
   color: var(--text-muted);
 }
+
+/* ── Utility animations ── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
+/* Accent color aliases used in OperationsView */
+:root {
+  --accent-green: #10b981;
+  --accent-blue:  #3b82f6;
+  --accent-red:   #ef4444;
+  --radius-sm:    6px;
+}
