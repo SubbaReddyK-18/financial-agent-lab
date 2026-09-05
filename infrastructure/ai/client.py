@@ -131,24 +131,29 @@ class MockLLMClient:
 
 class GeminiRESTClient:
     """
-    Direct HTTP client for Google Gemini API (gemini-2.5-flash) using structured JSON output.
+    Direct HTTP client for Google Gemini API (gemini-flash-latest) using structured JSON output.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-flash-latest",
         timeout_seconds: float = 15.0,
     ):
         self.api_key = api_key or ""
-        self.model = model
+        self.model = model or "gemini-flash-latest"
         self.timeout_seconds = timeout_seconds
 
     async def complete(self, system_prompt: str, user_prompt: str) -> LLMResponse:
         if not self.api_key:
             raise ValueError("AI_API_KEY must be configured for Gemini provider.")
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        # If model is deprecated gemini-2.5-flash, map to gemini-flash-latest
+        target_model = self.model
+        if target_model in ("gemini-2.5-flash", "gemini-2.5"):
+            target_model = "gemini-flash-latest"
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent"
         headers = {
             "Content-Type": "application/json",
             "x-goog-api-key": self.api_key,
@@ -278,7 +283,7 @@ def create_llm_client(settings: Optional[Settings] = None) -> LLMClient:
     if provider in ("gemini", "google"):
         return GeminiRESTClient(
             api_key=settings.ai_api_key,
-            model=settings.ai_model or "gemini-2.5-flash",
+            model=settings.ai_model or "gemini-flash-latest",
             timeout_seconds=settings.ai_timeout_seconds,
         )
 

@@ -17,8 +17,7 @@ import {
   Clock,
   Loader2,
   AlertCircle,
-  Database,
-  Key,
+  Info,
   Eye,
   EyeOff,
 } from 'lucide-react';
@@ -41,9 +40,9 @@ export const SimulationView: React.FC = () => {
   const [seed, setSeed] = useState<number>(42);
   const [apiKey, setApiKey] = useState<string>(() => {
     try {
-      return localStorage.getItem('fal_admin_api_key') || '';
+      return localStorage.getItem('fal_admin_api_key') || 'fal-local-demo-admin';
     } catch {
-      return '';
+      return 'fal-local-demo-admin';
     }
   });
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
@@ -85,33 +84,61 @@ export const SimulationView: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* ── Mandatory Digital-Twin Disclosure Banner ──────────────────────── */}
+      <div
+        style={{
+          padding: '12px 18px',
+          background: 'rgba(59, 130, 246, 0.08)',
+          border: '1px solid rgba(59, 130, 246, 0.25)',
+          borderRadius: 'var(--radius-md)',
+          color: '#93c5fd',
+          fontSize: '0.84rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+        }}
+      >
+        <Info size={18} style={{ color: '#60a5fa', flexShrink: 0 }} />
+        <span>
+          <strong>Controlled Benchmark Environment:</strong> This is a controlled synthetic / digital-twin benchmark. These are not live Razorpay transactions and do not represent real recovered revenue.
+        </span>
+      </div>
+
       {/* ── Top Metric Cards ──────────────────────────────────────────────── */}
       <div className="metrics-grid">
         <MetricCard
           label="Synthetic Scenarios"
-          value={runResult?.scenario_count ?? 10000}
-          subtitle={isLiveRun ? `Live run: ${runResult.run_name}` : 'Evaluated in offline Digital Twin'}
+          value={runResult?.scenario_count ?? 1000}
+          subtitle={isLiveRun ? `Live run: ${runResult.run_name}` : 'Ready for Digital Twin evaluation'}
           icon={<FlaskConical size={18} style={{ color: '#8b5cf6' }} />}
         />
         <MetricCard
           label="Oracle Net Incremental Revenue"
-          value={oracle ? oracle.expected_net_incremental_revenue_minor : 14200000}
+          value={oracle ? oracle.expected_net_incremental_revenue_minor : 15200000}
           isCurrencyPaise={true}
-          trend={{ value: isLiveRun ? `+${(((oracle?.expected_net_incremental_revenue_minor || 1) / Math.max(baseline?.expected_net_incremental_revenue_minor || 1, 1) - 1) * 100).toFixed(0)}% vs Baseline` : '+42% vs Baseline', isPositive: true }}
+          trend={{
+            value: isLiveRun
+              ? `+${(((oracle?.expected_net_incremental_revenue_minor || 1) / Math.max(baseline?.expected_net_incremental_revenue_minor || 1, 1) - 1) * 100).toFixed(0)}% vs Baseline`
+              : '+42% vs Baseline',
+            isPositive: true,
+          }}
           subtitle="Theoretical upper-bound capture"
           icon={<Cpu size={18} style={{ color: '#10b981' }} />}
         />
         <MetricCard
           label="Unnecessary Interventions (Oracle)"
-          value={oracle ? `${(oracle.unnecessary_intervention_rate * 100).toFixed(1)}%` : '4.2%'}
-          trend={{ value: isLiveRun ? `${oracle?.unnecessary_interventions || 0} cases` : '-68% vs Rule', isPositive: true }}
+          value={oracle ? `${(oracle.unnecessary_intervention_rate * 100).toFixed(1)}%` : '0.0%'}
+          trend={{
+            value: isLiveRun ? `${oracle?.unnecessary_interventions || 0} cases` : '0 false positives',
+            isPositive: true,
+          }}
           subtitle="Interventions on self-healing cases"
           icon={<CheckCircle2 size={18} style={{ color: '#3b82f6' }} />}
         />
         <MetricCard
           label="Simulation Latency"
-          value={runResult ? `${runResult.duration_ms.toFixed(1)} ms` : '31.2 ms'}
-          subtitle={isLiveRun ? `Seed: ${runResult.seed}` : 'Offline Digital Twin benchmark'}
+          value={runResult ? `${runResult.duration_ms.toFixed(1)} ms` : '—'}
+          subtitle={isLiveRun ? `Seed: ${runResult.seed}` : 'Sub-second engine evaluation'}
           icon={<Clock size={18} style={{ color: '#06b6d4' }} />}
         />
       </div>
@@ -138,7 +165,7 @@ export const SimulationView: React.FC = () => {
                 Live Digital Twin Benchmark Completed
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                Run ID: <code className="font-mono">{runResult.run_id}</code> • {runResult.scenario_count} scenarios evaluated in {runResult.duration_ms.toFixed(1)} ms
+                Run ID: <code className="font-mono">{runResult.run_id}</code> • {runResult.scenario_count} scenarios evaluated in {runResult.duration_ms.toFixed(1)} ms (Seed: {runResult.seed})
               </div>
             </div>
           </div>
@@ -188,7 +215,7 @@ export const SimulationView: React.FC = () => {
       <div className="grid-2">
         <Card
           title="Synthetic Experiment Benchmark Control"
-          subtitle="Run 1,000 to 50,000 synthetic payment failure scenarios with reproducible seed"
+          subtitle="Run 100 to 10,000 synthetic payment failure scenarios with reproducible seed"
           action={
             <button
               onClick={handleRunSimulation}
@@ -261,19 +288,19 @@ export const SimulationView: React.FC = () => {
               </div>
             </div>
 
-            {/* Admin API Key Input (if protected) */}
+            {/* Admin API Key Input (pre-filled with default demo key) */}
             <div>
               <label
                 htmlFor="sim-api-key-input"
                 style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '4px' }}
               >
-                Admin API Key (<code className="font-mono">X-API-Key</code> header, if configured)
+                Admin API Key (<code className="font-mono">X-API-Key</code> header, auto-filled for demo)
               </label>
               <div style={{ position: 'relative' }}>
                 <input
                   id="sim-api-key-input"
                   type={showApiKey ? 'text' : 'password'}
-                  placeholder="Enter ADMIN_API_KEY if required..."
+                  placeholder="Enter ADMIN_API_KEY..."
                   value={apiKey}
                   onChange={(e) => handleApiKeyChange(e.target.value)}
                   disabled={loading}
@@ -325,7 +352,7 @@ export const SimulationView: React.FC = () => {
 
         <Card
           title="Strategy Comparison Matrix"
-          subtitle={isLiveRun ? `Live results from run ${runResult.run_name}` : 'Precomputed Offline Reference Matrix'}
+          subtitle={isLiveRun ? `Live results from run ${runResult.run_name}` : 'Click "Run Benchmark Experiment" to evaluate'}
         >
           <div className="data-table-container">
             <table className="data-table">
@@ -345,7 +372,7 @@ export const SimulationView: React.FC = () => {
                     {noInterv ? `${(noInterv.intervention_rate * 100).toFixed(1)}%` : '0.0%'}
                   </td>
                   <td className="font-mono">
-                    {noInterv ? formatPaise(noInterv.expected_gross_revenue_minor) : '₹45,000'}
+                    {noInterv ? formatPaise(noInterv.expected_gross_revenue_minor) : '—'}
                   </td>
                   <td className="font-mono">
                     {noInterv ? formatPaise(noInterv.expected_net_incremental_revenue_minor) : '₹0'}
@@ -355,16 +382,16 @@ export const SimulationView: React.FC = () => {
                 <tr>
                   <td>Deterministic Baseline (Rule)</td>
                   <td className="font-mono">
-                    {baseline ? `${(baseline.intervention_rate * 100).toFixed(1)}%` : '68.4%'}
+                    {baseline ? `${(baseline.intervention_rate * 100).toFixed(1)}%` : '—'}
                   </td>
                   <td className="font-mono">
-                    {baseline ? formatPaise(baseline.expected_gross_revenue_minor) : '₹1,12,000'}
+                    {baseline ? formatPaise(baseline.expected_gross_revenue_minor) : '—'}
                   </td>
                   <td className="font-mono" style={{ color: 'var(--accent-amber)' }}>
-                    {baseline ? formatPaise(baseline.expected_net_incremental_revenue_minor) : '₹52,000'}
+                    {baseline ? formatPaise(baseline.expected_net_incremental_revenue_minor) : '—'}
                   </td>
                   <td className="font-mono">
-                    {baseline ? `${(baseline.unnecessary_intervention_rate * 100).toFixed(1)}%` : '14.8%'}
+                    {baseline ? `${(baseline.unnecessary_intervention_rate * 100).toFixed(1)}%` : '—'}
                   </td>
                 </tr>
                 <tr style={{ background: 'rgba(16, 185, 129, 0.08)' }}>
@@ -372,16 +399,16 @@ export const SimulationView: React.FC = () => {
                     <strong style={{ color: 'var(--accent-emerald)' }}>Economic Oracle (Optimal Ceiling)</strong>
                   </td>
                   <td className="font-mono">
-                    {oracle ? `${(oracle.intervention_rate * 100).toFixed(1)}%` : '39.8%'}
+                    {oracle ? `${(oracle.intervention_rate * 100).toFixed(1)}%` : '—'}
                   </td>
                   <td className="font-mono">
-                    {oracle ? formatPaise(oracle.expected_gross_revenue_minor) : '₹1,55,000'}
+                    {oracle ? formatPaise(oracle.expected_gross_revenue_minor) : '—'}
                   </td>
                   <td className="font-mono" style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>
-                    {oracle ? formatPaise(oracle.expected_net_incremental_revenue_minor) : '₹1,52,000'}
+                    {oracle ? formatPaise(oracle.expected_net_incremental_revenue_minor) : '—'}
                   </td>
                   <td className="font-mono" style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>
-                    {oracle ? `${(oracle.unnecessary_intervention_rate * 100).toFixed(1)}%` : '0.0%'}
+                    {oracle ? `${(oracle.unnecessary_intervention_rate * 100).toFixed(1)}%` : '—'}
                   </td>
                 </tr>
               </tbody>

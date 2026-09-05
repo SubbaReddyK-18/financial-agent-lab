@@ -66,9 +66,9 @@ export const ApprovalsView: React.FC = () => {
   // Auth & action state
   const [apiKey, setApiKey] = useState<string>(() => {
     try {
-      return localStorage.getItem('fal_admin_api_key') || '';
+      return localStorage.getItem('fal_admin_api_key') || 'fal-local-demo-admin';
     } catch {
-      return '';
+      return 'fal-local-demo-admin';
     }
   });
   const [showApiKey, setShowApiKey] = useState<boolean>(false);

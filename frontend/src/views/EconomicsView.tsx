@@ -94,7 +94,7 @@ export const EconomicsView: React.FC = () => {
               border: '1px solid rgba(16, 185, 129, 0.3)',
             }}
           >
-            <Database size={12} /> Live Production Telemetry
+            <Database size={12} /> Test-Mode System Telemetry
           </span>
           <button
             onClick={() => refresh()}

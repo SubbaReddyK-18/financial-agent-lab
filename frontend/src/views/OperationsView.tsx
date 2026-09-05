@@ -250,6 +250,58 @@ export const OperationsView: React.FC = () => {
         </button>
       </div>
 
+      {/* ── Architectural Thesis Banner ── */}
+      <div
+        style={{
+          padding: '14px 18px',
+          marginBottom: '20px',
+          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.05) 100%)',
+          border: '1px solid rgba(139, 92, 246, 0.2)',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: '0.96rem',
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+              letterSpacing: '-0.01em',
+            }}
+          >
+            “A payment failure is an event, not a diagnosis.”
+          </div>
+          <div
+            style={{
+              fontSize: '0.78rem',
+              color: 'var(--text-secondary)',
+              marginTop: '2px',
+            }}
+          >
+            Optimize for safe net incremental revenue — not payment retries.
+          </div>
+        </div>
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.72rem',
+            padding: '4px 9px',
+            background: 'rgba(255, 255, 255, 0.04)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--accent-purple)',
+            fontWeight: 500,
+          }}
+        >
+          Control Plane Architecture
+        </div>
+      </div>
+
       {/* ── Error banner (non-blocking) ── */}
       {error && !initializing && <ErrorBanner message={error} />}
 

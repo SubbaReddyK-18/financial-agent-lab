@@ -1,14 +1,17 @@
 /**
  * frontend/src/views/DecisionsView.tsx
  *
- * Decisions Control Room — live data from:
- *   GET /api/observability/recovery/14ec8d3a-51cd-4107-8624-8b3b07bd49d8
+ * Decisions Control Room — Live recovery case lifecycle & decision audit.
  *
- * Displays Decision → Policy → Economics → Dispatch from a real persisted
- * PostgreSQL record. No hardcoded mock values.
+ * Exposes the full 7-stage recovery lifecycle from live PostgreSQL records:
+ *   EVENT → INTELLIGENCE → ECONOMICS → GOVERNANCE → CONTROL → EXECUTION → OUTCOME
+ *
+ * Includes a lightweight case selector between the verified backend cases:
+ *   1. ₹25,000 High-Value PAYMENT_LINK (Hero Case — Governance Gate & Approval)
+ *   2. ₹2,500 Lower-Value Technical Retry (Contrast Case — Automated Policy Compliant)
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BrainCircuit,
   CheckCircle2,
@@ -20,18 +23,47 @@ import {
   Database,
   TrendingUp,
   ShieldCheck,
-  ShieldX,
+  ShieldAlert,
   Cpu,
+  ArrowRight,
+  Workflow,
+  Layers,
 } from 'lucide-react';
 import { Card } from '../components/common/Card';
 import { MetricCard } from '../components/common/MetricCard';
 import { StatusBadge } from '../components/common/StatusBadge';
 import { useRecoveryAudit } from '../hooks/useRecoveryAudit';
+import type { RecoveryAuditDetail } from '../api/types';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Case Registry ────────────────────────────────────────────────────────────
 
-/** The hero recovery case that exists in production PostgreSQL (₹25,000 PAYMENT_LINK). */
-const DEMO_CASE_ID = '63f5c724-61b7-4679-91ae-d9862eca9deb';
+interface CaseOption {
+  id: string;
+  label: string;
+  amountLabel: string;
+  actionType: string;
+  governanceNote: string;
+  isHero: boolean;
+}
+
+const AVAILABLE_CASES: CaseOption[] = [
+  {
+    id: '63f5c724-61b7-4679-91ae-d9862eca9deb',
+    label: 'Hero Case · High-Value Link',
+    amountLabel: '₹25,000',
+    actionType: 'PAYMENT_LINK',
+    governanceNote: 'Requires Human Approval (> ₹10k Policy)',
+    isHero: true,
+  },
+  {
+    id: '14ec8d3a-51cd-4107-8624-8b3b07bd49d8',
+    label: 'Contrast Case · Technical Retry',
+    amountLabel: '₹2,500',
+    actionType: 'TECHNICAL_RETRY',
+    governanceNote: 'Policy Compliant (Automated Dispatch)',
+    isHero: false,
+  },
+];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -40,7 +72,7 @@ const formatPaise = (paise: number | null | undefined): string => {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   }).format(paise / 100);
 };
 
@@ -114,15 +146,248 @@ const LiveBadge: React.FC = () => (
     }}
   >
     <Database size={10} />
-    Live backend record
+    Live PostgreSQL Record
   </span>
 );
 
-// ─── Main view ────────────────────────────────────────────────────────────────
+// ─── 7-Stage Recovery Lifecycle Component ─────────────────────────────────────
+
+interface LifecycleStepProps {
+  stepNumber: number;
+  name: string;
+  status: string;
+  detail: string;
+  color: string;
+  isLast?: boolean;
+}
+
+const LifecycleStep: React.FC<LifecycleStepProps> = ({
+  stepNumber,
+  name,
+  status,
+  detail,
+  color,
+  isLast = false,
+}) => (
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      flex: 1,
+      minWidth: '130px',
+    }}
+  >
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        background: 'rgba(255, 255, 255, 0.02)',
+        border: `1px solid ${color}33`,
+        borderTop: `3px solid ${color}`,
+        borderRadius: 'var(--radius-sm)',
+        padding: '10px 12px',
+        width: '100%',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.66rem',
+            color: 'var(--text-muted)',
+            fontWeight: 700,
+          }}
+        >
+          0{stepNumber}
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.68rem',
+            fontWeight: 700,
+            color,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          {name}
+        </span>
+      </div>
+      <div
+        style={{
+          fontSize: '0.84rem',
+          fontWeight: 600,
+          color: 'var(--text-primary)',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+        title={status}
+      >
+        {status}
+      </div>
+      <div
+        style={{
+          fontSize: '0.72rem',
+          color: 'var(--text-secondary)',
+          lineHeight: 1.25,
+          minHeight: '28px',
+        }}
+      >
+        {detail}
+      </div>
+    </div>
+    {!isLast && (
+      <div style={{ padding: '0 6px', color: 'var(--text-muted)', flexShrink: 0 }}>
+        <ArrowRight size={14} style={{ opacity: 0.5 }} />
+      </div>
+    )}
+  </div>
+);
+
+const RecoveryLifecycle: React.FC<{ data: RecoveryAuditDetail }> = ({ data }) => {
+  const ctx = data.observable_context;
+  const econ = data.economic_evaluation;
+
+  const isHighValue = (ctx?.amount_minor ?? 0) >= 1000000;
+  const hasApprovalRecord = data.approval != null;
+  const isPolicyHumanApprovalRequired = Boolean(
+    data.requires_human_review ||
+    (data.policy_result as Record<string, unknown> | null)?.requires_human_approval ||
+    isHighValue
+  );
+
+  // 1. EVENT
+  const eventStatus = ctx?.failure_code ?? 'payment.failed';
+  const eventDetail = ctx
+    ? `${formatPaise(ctx.amount_minor)} · ${ctx.payment_method}`
+    : 'Webhook Ingested';
+
+  // 2. INTELLIGENCE
+  const intelStatus = data.proposed_action;
+  const intelDetail = `${Math.round(data.confidence * 100)}% conf · ${data.uncertainty} uncertainty`;
+
+  // 3. ECONOMICS
+  const econStatus = econ
+    ? `${formatPaise(econ.expected_net_incremental_revenue_minor)} net`
+    : 'Engine Evaluated';
+  const econDetail = econ
+    ? `Gross ${formatPaise(econ.expected_gross_revenue_minor)} − Cost ${formatPaise(econ.intervention_cost_minor)}`
+    : 'EconomicEngine projection';
+
+  // 4. GOVERNANCE
+  const govStatus = isPolicyHumanApprovalRequired
+    ? hasApprovalRecord
+      ? 'Authorized (Approved)'
+      : 'Review Required'
+    : 'Policy Compliant';
+  const govDetail = isPolicyHumanApprovalRequired
+    ? 'High-value threshold (> ₹10k)'
+    : 'Automated policy passed';
+
+  // 5. CONTROL
+  const controlStatus = isPolicyHumanApprovalRequired
+    ? hasApprovalRecord || data.execution_status === 'APPROVED' || data.execution_status === 'QUEUED' || data.execution_status === 'SUCCESS'
+      ? 'Approved & Enqueued'
+      : 'Pending Approval'
+    : 'Outbox Dispatched';
+  const controlDetail = data.outbox_status
+    ? `Outbox: ${data.outbox_status}`
+    : data.recovery_action_id
+    ? `Action: ${truncateId(data.recovery_action_id, 8)}`
+    : 'Control plane secured';
+
+  // 6. EXECUTION
+  const execStatus = data.execution_status ?? (isPolicyHumanApprovalRequired && !hasApprovalRecord ? 'BLOCKED' : 'QUEUED');
+  const execDetail = data.execution_reference
+    ? truncateId(data.execution_reference, 14)
+    : data.final_action === 'PAYMENT_LINK'
+    ? 'Razorpay Payment Link API'
+    : 'Technical Retry Worker';
+
+  // 7. OUTCOME
+  const outcomeStatus = data.payment_status ?? (execStatus === 'SUCCESS' ? 'CAPTURED' : 'AUDITED');
+  const outcomeDetail = `Audit ID: ${truncateId(data.decision_id, 8)} · v1.0.0`;
+
+  return (
+    <Card
+      title="Recovery Case Lifecycle"
+      subtitle="Deterministic 7-stage execution trajectory from durable event to reconciled outcome"
+      style={{ marginBottom: '24px' }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px',
+          alignItems: 'stretch',
+          paddingTop: '6px',
+        }}
+      >
+        <LifecycleStep
+          stepNumber={1}
+          name="Event"
+          status={eventStatus}
+          detail={eventDetail}
+          color="#3b82f6"
+        />
+        <LifecycleStep
+          stepNumber={2}
+          name="Intelligence"
+          status={intelStatus}
+          detail={intelDetail}
+          color="#8b5cf6"
+        />
+        <LifecycleStep
+          stepNumber={3}
+          name="Economics"
+          status={econStatus}
+          detail={econDetail}
+          color="#06b6d4"
+        />
+        <LifecycleStep
+          stepNumber={4}
+          name="Governance"
+          status={govStatus}
+          detail={govDetail}
+          color={isPolicyHumanApprovalRequired ? '#f59e0b' : '#10b981'}
+        />
+        <LifecycleStep
+          stepNumber={5}
+          name="Control"
+          status={controlStatus}
+          detail={controlDetail}
+          color="#ec4899"
+        />
+        <LifecycleStep
+          stepNumber={6}
+          name="Execution"
+          status={execStatus}
+          detail={execDetail}
+          color="#6366f1"
+        />
+        <LifecycleStep
+          stepNumber={7}
+          name="Outcome"
+          status={outcomeStatus}
+          detail={outcomeDetail}
+          color="#10b981"
+          isLast
+        />
+      </div>
+    </Card>
+  );
+};
+
+// ─── Main View ────────────────────────────────────────────────────────────────
 
 export const DecisionsView: React.FC = () => {
+  const [selectedCaseId, setSelectedCaseId] = useState<string>(AVAILABLE_CASES[0].id);
   const { data, loading, initializing, error, lastFetchedAt, refresh } =
-    useRecoveryAudit(DEMO_CASE_ID);
+    useRecoveryAudit(selectedCaseId);
+
+  const selectedCase = AVAILABLE_CASES.find((c) => c.id === selectedCaseId) ?? AVAILABLE_CASES[0];
 
   // ── Loading skeleton (first fetch only) ──
   if (initializing) {
@@ -201,9 +466,15 @@ export const DecisionsView: React.FC = () => {
 
   const econ = data.economic_evaluation;
   const ctx = data.observable_context;
-
-  // ── Derived metric card values ──
   const confidencePct = Math.round(data.confidence * 100);
+
+  const isHighValue = (ctx?.amount_minor ?? 0) >= 1000000;
+  const hasApprovalRecord = data.approval != null;
+  const isPolicyHumanApprovalRequired = Boolean(
+    data.requires_human_review ||
+    (data.policy_result as Record<string, unknown> | null)?.requires_human_approval ||
+    isHighValue
+  );
 
   const refreshButton = (
     <button
@@ -238,6 +509,79 @@ export const DecisionsView: React.FC = () => {
     <div>
       {errorBanner}
 
+      {/* ── Case Selector Bar ── */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '16px',
+          padding: '12px 16px',
+          background: 'rgba(255, 255, 255, 0.02)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Workflow size={16} style={{ color: 'var(--accent-purple)' }} />
+          <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            Active Recovery Case:
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {AVAILABLE_CASES.map((c) => {
+            const isSelected = c.id === selectedCaseId;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setSelectedCaseId(c.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: isSelected
+                    ? '1px solid var(--accent-purple)'
+                    : '1px solid rgba(255, 255, 255, 0.08)',
+                  background: isSelected
+                    ? 'rgba(139, 92, 246, 0.15)'
+                    : 'rgba(255, 255, 255, 0.02)',
+                  color: isSelected ? 'var(--text-primary)' : 'var(--text-muted)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  fontSize: '0.78rem',
+                  fontWeight: isSelected ? 600 : 400,
+                }}
+              >
+                <Layers
+                  size={13}
+                  style={{ color: isSelected ? 'var(--accent-purple)' : 'var(--text-muted)' }}
+                />
+                <span>
+                  <strong>{c.amountLabel}</strong> ({c.actionType})
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.68rem',
+                    padding: '2px 6px',
+                    borderRadius: 'var(--radius-full)',
+                    background: c.isHero ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                    color: c.isHero ? '#f59e0b' : '#10b981',
+                    border: `1px solid ${c.isHero ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                  }}
+                >
+                  {c.isHero ? 'Hero Case' : 'Auto Policy'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* ── Header meta row ── */}
       <div
         style={{
@@ -254,6 +598,15 @@ export const DecisionsView: React.FC = () => {
           <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             case: {truncateId(data.recovery_case_id, 8)}
           </span>
+          <span
+            style={{
+              fontSize: '0.74rem',
+              color: selectedCase.isHero ? '#f59e0b' : '#10b981',
+              fontWeight: 500,
+            }}
+          >
+            · {selectedCase.governanceNote}
+          </span>
           {lastFetchedAt && (
             <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               · fetched {formatTimestamp(lastFetchedAt)}
@@ -262,6 +615,9 @@ export const DecisionsView: React.FC = () => {
         </div>
         {refreshButton}
       </div>
+
+      {/* ── 7-Stage Recovery Lifecycle Stepper ── */}
+      <RecoveryLifecycle data={data} />
 
       {/* ── KPI metric cards ── */}
       <div className="metrics-grid">
@@ -277,17 +633,35 @@ export const DecisionsView: React.FC = () => {
           icon={<BrainCircuit size={18} style={{ color: '#8b5cf6' }} />}
         />
         <MetricCard
-          label="Policy Gate"
-          value={data.policy_approved ? 'Approved' : 'Rejected'}
+          label="Policy & Governance Gate"
+          value={
+            isPolicyHumanApprovalRequired
+              ? hasApprovalRecord
+                ? 'Approved'
+                : 'Pending Approval'
+              : data.policy_approved
+              ? 'Compliant'
+              : 'Rejected'
+          }
           trend={{
-            value: data.policy_approved ? 'Compliant' : 'Blocked',
+            value: isPolicyHumanApprovalRequired
+              ? hasApprovalRecord
+                ? 'Authorized by Operator'
+                : 'Quarantined (> ₹10k Policy)'
+              : 'Automated Policy Passed',
             isPositive: data.policy_approved,
           }}
           subtitle={
-            data.requires_human_review ? 'Human review required' : 'No review required'
+            isPolicyHumanApprovalRequired
+              ? hasApprovalRecord
+                ? 'Operator authorization recorded'
+                : 'High-value threshold (> ₹10,000)'
+              : 'No human review required'
           }
           icon={
-            data.policy_approved ? (
+            isPolicyHumanApprovalRequired ? (
+              <ShieldAlert size={18} style={{ color: hasApprovalRecord ? '#10b981' : '#f59e0b' }} />
+            ) : data.policy_approved ? (
               <CheckCircle2 size={18} style={{ color: '#10b981' }} />
             ) : (
               <XCircle size={18} style={{ color: '#f43f5e' }} />
@@ -348,7 +722,15 @@ export const DecisionsView: React.FC = () => {
                 {data.proposed_action}
               </span>
               <StatusBadge
-                status={data.policy_approved ? 'POLICY_COMPLIANT' : 'POLICY_REJECTED'}
+                status={
+                  isPolicyHumanApprovalRequired
+                    ? hasApprovalRecord
+                      ? 'APPROVED'
+                      : 'PENDING_APPROVAL'
+                    : data.policy_approved
+                    ? 'POLICY_COMPLIANT'
+                    : 'POLICY_REJECTED'
+                }
               />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
@@ -408,10 +790,14 @@ export const DecisionsView: React.FC = () => {
                 Human review:{' '}
                 <strong
                   style={{
-                    color: data.requires_human_review ? '#f43f5e' : 'var(--text-secondary)',
+                    color: isPolicyHumanApprovalRequired ? '#f59e0b' : 'var(--text-secondary)',
                   }}
                 >
-                  {data.requires_human_review ? 'Required' : 'Not required'}
+                  {isPolicyHumanApprovalRequired
+                    ? hasApprovalRecord
+                      ? 'Required (Approved)'
+                      : 'Required (Pending)'
+                    : 'Not required'}
                 </strong>
               </div>
             </div>
@@ -429,17 +815,42 @@ export const DecisionsView: React.FC = () => {
               fontWeight: 600,
             }}
           >
-            {data.policy_approved ? (
-              <ShieldCheck size={14} style={{ color: '#10b981' }} />
+            {isPolicyHumanApprovalRequired ? (
+              <ShieldAlert size={14} style={{ color: '#f59e0b' }} />
             ) : (
-              <ShieldX size={14} style={{ color: '#f43f5e' }} />
+              <ShieldCheck size={14} style={{ color: '#10b981' }} />
             )}
-            Policy Gate
+            Policy Gate &amp; Governance Rules
           </div>
-          <InfoRow label="Policy approved" value={data.policy_approved ? '✓ Yes' : '✗ No'} />
           <InfoRow
-            label="Requires human review"
-            value={data.requires_human_review ? '⚠ Yes' : 'No'}
+            label="Policy permitted action"
+            value={data.policy_approved ? '✓ Permitted by Policy' : '✗ Rejected'}
+          />
+          <InfoRow
+            label="Governance threshold"
+            value={
+              isHighValue
+                ? `Exceeds ₹10,000 threshold (${formatPaise(ctx?.amount_minor)})`
+                : `Within limits (${formatPaise(ctx?.amount_minor)} < ₹10,000)`
+            }
+          />
+          <InfoRow
+            label="Human review gate"
+            value={
+              isPolicyHumanApprovalRequired
+                ? '⚠ Required (High-Value Policy)'
+                : 'No (Automated dispatch permitted)'
+            }
+          />
+          <InfoRow
+            label="Approval status"
+            value={
+              hasApprovalRecord
+                ? '✓ Authorized by Operator'
+                : isPolicyHumanApprovalRequired
+                ? '⏳ Quarantined (Pending Approval)'
+                : 'Automated (N/A)'
+            }
           />
           <InfoRow
             label="Fallback triggered"
